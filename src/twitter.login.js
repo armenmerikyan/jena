@@ -16,8 +16,7 @@ if (!handle) {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 (async () => {
-  const browser = await puppeteer.launch({
-    executablePath: '/usr/bin/chromium-browser', // adjust to your system
+  const browser = await puppeteer.launch({ 
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
