@@ -52,24 +52,21 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     await page.keyboard.press('Enter');
     await sleep(3000);
 
-    // Detect possible email or phone prompt
-    const challengeInput = await page.$('input[name="email"], input[name="text"]');
-    if (challengeInput) {
-      const label = await page.evaluate(el => {
-        const labelElement = el.closest('div');
-        return labelElement ? labelElement.innerText.toLowerCase() : '';
-      }, challengeInput);
+    // Check if Twitter asks for email after username
+    const nextInput = await page.waitForSelector('input[name="text"], input[name="email"]', { timeout: 10000 });
 
-      if (label.includes('email') && email) {
-        console.log('📧 Providing email as verification...');
-        await challengeInput.type(email);
-        await page.keyboard.press('Enter');
-        await sleep(3000);
-      } else if (label.includes('phone')) {
-        console.error('📱 Phone verification required. Script cannot proceed.');
-        await browser.close();
-        process.exit(1);
-      }
+    const labelText = await page.evaluate(input => {
+      const label = input.closest('div');
+      return label ? label.innerText.toLowerCase() : '';
+    }, nextInput);
+
+    if (labelText.includes('email') && email) {
+      console.log('📧 Email requested. Entering email...');
+      await nextInput.type(email);
+      await page.keyboard.press('Enter');
+      await sleep(3000);
+    } else {
+      console.log('➡️ No email requested. Proceeding to password.');
     }
 
     try {
@@ -78,7 +75,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
       await page.keyboard.press('Enter');
       await page.waitForNavigation({ waitUntil: 'networkidle2' });
     } catch (err) {
-      console.error('❌ Failed to find password input or login failed.');
+      console.error('❌ Could not enter password or continue login.');
       await page.screenshot({ path: 'login_error.png' });
       await browser.close();
       process.exit(1);
