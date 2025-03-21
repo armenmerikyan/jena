@@ -1,9 +1,12 @@
 const puppeteer = require('puppeteer');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const username = process.env.TWITTER_USER;
 const password = process.env.TWITTER_PASS;
 const handle = process.argv[2];
+const cookiesPath = path.resolve(__dirname, 'cookies.json');
 
 if (!handle) {
   console.error('❌ Please provide a Twitter/X handle as an argument');
@@ -20,48 +23,61 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
   const page = await browser.newPage();
 
-  // Set headers and user-agent
   await page.setUserAgent(
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
     'AppleWebKit/537.36 (KHTML, like Gecko) ' +
     'Chrome/123.0.0.0 Safari/537.36'
   );
-
-  await page.setExtraHTTPHeaders({
-    'accept-language': 'en-US,en;q=0.9',
-  });
-
+  await page.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9' });
   await page.setViewport({ width: 1280, height: 1024 });
 
-  await page.goto('https://x.com/login', { waitUntil: 'networkidle2' });
+  // Load cookies if they exist
+  if (fs.existsSync(cookiesPath)) {
+    const cookies = JSON.parse(fs.readFileSync(cookiesPath));
+    await page.setCookie(...cookies);
+  }
 
-  // Enter username
-  await page.waitForSelector('input[name="text"]');
-  await page.type('input[name="text"]', username);
-  await page.keyboard.press('Enter');
-  await sleep(2000);
+  await page.goto('https://x.com/home', { waitUntil: 'networkidle2' });
 
-  // Enter password
-  await page.waitForSelector('input[name="password"]');
-  await page.type('input[name="password"]', password);
-  await page.keyboard.press('Enter');
+  // Check if already logged in
+  const isLoggedIn = await page.evaluate(() => {
+    return !!document.querySelector('a[href="/home"]');
+  });
 
-  await page.waitForNavigation({ waitUntil: 'networkidle2' });
+  if (!isLoggedIn) {
+    console.log('🔐 Logging in...');
 
-  console.log(`✅ Logged in as: ${username}`);
+    await page.goto('https://x.com/login', { waitUntil: 'networkidle2' });
 
-  // Navigate to profile
+    await page.waitForSelector('input[name="text"]');
+    await page.type('input[name="text"]', username);
+    await page.keyboard.press('Enter');
+    await sleep(2000);
+
+    await page.waitForSelector('input[name="password"]', { timeout: 5000 });
+    await page.type('input[name="password"]', password);
+    await page.keyboard.press('Enter');
+
+    await page.waitForNavigation({ waitUntil: 'networkidle2' });
+
+    // Save cookies
+    const cookies = await page.cookies();
+    fs.writeFileSync(cookiesPath, JSON.stringify(cookies, null, 2));
+
+    console.log(`✅ Logged in and cookies saved.`);
+  } else {
+    console.log(`✅ Already logged in with saved cookies.`);
+  }
+
   const profileUrl = `https://x.com/${handle}`;
   console.log(`🔍 Navigating to profile: ${profileUrl}`);
   await page.goto(profileUrl, { waitUntil: 'networkidle2' });
 
-  // Scroll to load tweets
   for (let i = 0; i < 6; i++) {
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
     await sleep(1500);
   }
 
-  // Extract latest 30 tweets
   const tweets = await page.evaluate(() => {
     const articles = Array.from(document.querySelectorAll('article'));
     return articles.map(article => {
