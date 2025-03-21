@@ -5,6 +5,7 @@ require('dotenv').config();
 
 const username = process.env.TWITTER_USER;
 const password = process.env.TWITTER_PASS;
+const email = process.env.TWITTER_EMAIL;
 const handle = process.argv[2];
 const cookiesPath = path.resolve(__dirname, 'cookies.json');
 
@@ -31,7 +32,6 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
   await page.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9' });
   await page.setViewport({ width: 1280, height: 1024 });
 
-  // Load cookies if they exist
   if (fs.existsSync(cookiesPath)) {
     const cookies = JSON.parse(fs.readFileSync(cookiesPath));
     await page.setCookie(...cookies);
@@ -39,14 +39,12 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
   await page.goto('https://x.com/home', { waitUntil: 'networkidle2' });
 
-  // Check if already logged in
   const isLoggedIn = await page.evaluate(() => {
     return !!document.querySelector('a[href="/home"]');
   });
 
   if (!isLoggedIn) {
     console.log('🔐 Logging in...');
-
     await page.goto('https://x.com/login', { waitUntil: 'networkidle2' });
 
     await page.waitForSelector('input[name="text"]');
@@ -54,13 +52,21 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     await page.keyboard.press('Enter');
     await sleep(2000);
 
+    // Check if it's asking for email instead of password
+    const needsEmail = await page.$('input[name="email"]');
+    if (needsEmail) {
+      console.log('📧 Providing email...');
+      await page.type('input[name="email"]', email);
+      await page.keyboard.press('Enter');
+      await sleep(2000);
+    }
+
     await page.waitForSelector('input[name="password"]', { timeout: 5000 });
     await page.type('input[name="password"]', password);
     await page.keyboard.press('Enter');
 
     await page.waitForNavigation({ waitUntil: 'networkidle2' });
 
-    // Save cookies
     const cookies = await page.cookies();
     fs.writeFileSync(cookiesPath, JSON.stringify(cookies, null, 2));
 
