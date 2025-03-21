@@ -17,7 +17,7 @@ if (!handle) {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 (async () => {
-  const browser = await puppeteer.launch({ 
+  const browser = await puppeteer.launch({
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
@@ -47,25 +47,42 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     console.log('🔐 Logging in...');
     await page.goto('https://x.com/login', { waitUntil: 'networkidle2' });
 
-    await page.waitForSelector('input[name="text"]');
+    await page.waitForSelector('input[name="text"]', { timeout: 10000 });
     await page.type('input[name="text"]', username);
     await page.keyboard.press('Enter');
-    await sleep(2000);
+    await sleep(3000);
 
-    // Check if it's asking for email instead of password
-    const needsEmail = await page.$('input[name="email"]');
-    if (needsEmail) {
-      console.log('📧 Providing email...');
-      await page.type('input[name="email"]', email);
-      await page.keyboard.press('Enter');
-      await sleep(2000);
+    // Detect possible email or phone prompt
+    const challengeInput = await page.$('input[name="email"], input[name="text"]');
+    if (challengeInput) {
+      const label = await page.evaluate(el => {
+        const labelElement = el.closest('div');
+        return labelElement ? labelElement.innerText.toLowerCase() : '';
+      }, challengeInput);
+
+      if (label.includes('email') && email) {
+        console.log('📧 Providing email as verification...');
+        await challengeInput.type(email);
+        await page.keyboard.press('Enter');
+        await sleep(3000);
+      } else if (label.includes('phone')) {
+        console.error('📱 Phone verification required. Script cannot proceed.');
+        await browser.close();
+        process.exit(1);
+      }
     }
 
-    await page.waitForSelector('input[name="password"]', { timeout: 5000 });
-    await page.type('input[name="password"]', password);
-    await page.keyboard.press('Enter');
-
-    await page.waitForNavigation({ waitUntil: 'networkidle2' });
+    try {
+      await page.waitForSelector('input[name="password"]', { timeout: 15000 });
+      await page.type('input[name="password"]', password);
+      await page.keyboard.press('Enter');
+      await page.waitForNavigation({ waitUntil: 'networkidle2' });
+    } catch (err) {
+      console.error('❌ Failed to find password input or login failed.');
+      await page.screenshot({ path: 'login_error.png' });
+      await browser.close();
+      process.exit(1);
+    }
 
     const cookies = await page.cookies();
     fs.writeFileSync(cookiesPath, JSON.stringify(cookies, null, 2));
