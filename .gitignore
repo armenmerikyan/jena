@@ -16,3 +16,6 @@ build/
 # OS-specific files
 .DS_Store
 Thumbs.db
+
+# app
+src/cookies.json
