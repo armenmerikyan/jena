@@ -5,10 +5,11 @@ Jena is a Node.js utility library for managing model context protocols. It expos
 X Scraper with Puppeteer
 This Node.js script logs into Twitter/X using Puppeteer, navigates to a given user's profile, and extracts their latest 30 tweets.
 
-🔧 Requirements
+# 🔧 Requirements
 Node.js (v16 or higher recommended)
 npm
-📦 Installation
+
+# 📦 Installation
 Clone this repo or copy the script into a new folder.
 
 Install dependencies:
