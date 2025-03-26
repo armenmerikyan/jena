@@ -7,6 +7,7 @@ const username = process.env.TWITTER_USER;
 const password = process.env.TWITTER_PASS;
 const email = process.env.TWITTER_EMAIL;
 const handle = process.argv[2];
+const maxPostCount = parseInt(process.argv[3], 10) || 2500;
 const cookiesPath = path.resolve(__dirname, 'cookies.json');
 
 if (!handle) {
@@ -17,18 +18,10 @@ if (!handle) {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 (async () => {
-  const browser = await puppeteer.launch({
-    headless: false,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-
+  const browser = await puppeteer.launch({ headless: false, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   const page = await browser.newPage();
 
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-    'Chrome/123.0.0.0 Safari/537.36'
-  );
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36');
   await page.setExtraHTTPHeaders({ 'accept-language': 'en-US,en;q=0.9' });
   await page.setViewport({ width: 1280, height: 1024 });
 
@@ -39,9 +32,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
   await page.goto('https://x.com/home', { waitUntil: 'networkidle2' });
 
-  const isLoggedIn = await page.evaluate(() => {
-    return !!document.querySelector('a[href="/home"]');
-  });
+  const isLoggedIn = await page.evaluate(() => !!document.querySelector('a[href="/home"]'));
 
   if (!isLoggedIn) {
     console.log('🔐 Logging in...');
@@ -53,7 +44,6 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     await sleep(3000);
 
     const nextInput = await page.waitForSelector('input[name="text"], input[name="email"]', { timeout: 10000 });
-
     const labelText = await page.evaluate(input => {
       const label = input.closest('div');
       return label ? label.innerText.toLowerCase() : '';
@@ -64,8 +54,6 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
       await nextInput.type(email);
       await page.keyboard.press('Enter');
       await sleep(3000);
-    } else {
-      console.log('➡️ No email requested. Proceeding to password.');
     }
 
     try {
@@ -82,7 +70,6 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
     const cookies = await page.cookies();
     fs.writeFileSync(cookiesPath, JSON.stringify(cookies, null, 2));
-
     console.log(`✅ Logged in and cookies saved.`);
   } else {
     console.log(`✅ Already logged in with saved cookies.`);
@@ -92,37 +79,52 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
   console.log(`🔍 Navigating to profile: ${profileUrl}`);
   await page.goto(profileUrl, { waitUntil: 'networkidle2' });
 
-  // Wait for tweet articles to load
   await page.waitForSelector('article div[lang]', { timeout: 15000 });
 
-  // Scroll to load more tweets
-  for (let i = 0; i < 6; i++) {
+  let tweets = new Set();
+  let lastHeight = 0;
+  let unchangedScrolls = 0;
+  const filePath = path.resolve(__dirname, `${handle}_tweets.txt`);
+
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath); // Remove old file if exists
+
+  while (unchangedScrolls < 5 && tweets.size < maxPostCount) {
+    const newTweets = await page.evaluate(() => {
+      const articles = Array.from(document.querySelectorAll('article'));
+      return articles.map(article => {
+        const textBlocks = Array.from(article.querySelectorAll('div[lang]'));
+        return textBlocks.map(el => el.innerText).join(' ').trim();
+      }).filter(Boolean);
+    });
+
+    let initialSize = tweets.size;
+    let newCount = 0;
+
+    for (let tweet of newTweets) {
+      if (!tweets.has(tweet)) {
+        tweets.add(tweet);
+        fs.appendFileSync(filePath, tweet + '\n\n', 'utf-8');
+        newCount++;
+        if (tweets.size >= maxPostCount) break;
+      }
+    }
+
+    if (newCount === 0) unchangedScrolls++;
+    else unchangedScrolls = 0;
+
+    console.log(`📥 Collected ${tweets.size} tweets so far...`);
+
+    if (tweets.size >= maxPostCount) break;
+
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
     await sleep(1500);
+
+    const currentHeight = await page.evaluate('document.body.scrollHeight');
+    if (currentHeight === lastHeight) unchangedScrolls++;
+    else lastHeight = currentHeight;
   }
 
-  // Optional screenshot for debugging
-  await page.screenshot({ path: 'tweets_loaded.png', fullPage: true });
-
-  const tweetCount = await page.evaluate(() => document.querySelectorAll('article').length);
-  console.log(`🔎 Found ${tweetCount} tweet articles.`);
-
-  const tweets = await page.evaluate(() => {
-    const articles = Array.from(document.querySelectorAll('article'));
-    return articles.map(article => {
-      const textBlocks = Array.from(article.querySelectorAll('div[lang]'));
-      return textBlocks.map(el => el.innerText).join(' ');
-    }).filter(Boolean).slice(0, 30);
-  });
-
-  console.log(`\n📝 Latest 30 tweets by @${handle}:\n`);
-  if (tweets.length === 0) {
-    console.log("⚠️ No tweets found. Check selector or page content.");
-  } else {
-    tweets.forEach((tweet, index) => {
-      console.log(`${index + 1}. ${tweet}\n`);
-    });
-  }
-
+  console.log(`✅ Done. Total tweets scraped: ${tweets.size}`);
+  console.log(`📁 Tweets saved to ${filePath}`);
   await browser.close();
 })();
