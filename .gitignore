@@ -19,3 +19,6 @@ Thumbs.db
 
 # app
 src/cookies.json
+
+# data
+/src/*.txt
